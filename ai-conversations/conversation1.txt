@@ -1,0 +1,27 @@
+ME: Required libaraies and installation
+AI: Standard Python Libraries
+os
+→ Used for interacting with the operating system — such as file paths, directories, or environment variables.
+re
+→ Regular expression module for pattern matching and string validation (e.g., checking formats like emails, phone numbers).
+datetime from datetime
+→ Helps work with dates and times. The code also imports timezone for time zone–aware operations.
+collections.defaultdict
+→ A dictionary subclass that provides a default value for new keys, often used for efficient data grouping or counting.
+
+📦 Third-Party Libraries
+pandas as pd
+→ Powerful data manipulation and analysis library — usually for tabular data, CSVs, or dataframes.
+matplotlib.pyplot as plt
+→ Commonly used for visualizing data (graphs, charts, plots).
+requests
+→ Used to make HTTP requests — typically for accessing APIs or external web data (e.g., fetching JSON).
+pyinputplus as pyip
+→ Provides safer, validated input handling — useful for user interaction in console-based programs.
+
+🧠 Custom / External Modules
+from fetch_my_weather import get_weather
+→ Likely a custom Python module (not built-in). Probably used to fetch weather data via an API or local logic.
+from hands_on_ai.chat import get_response
+→ Another custom or package-specific module, likely for chatbot or AI-based response generation.
+

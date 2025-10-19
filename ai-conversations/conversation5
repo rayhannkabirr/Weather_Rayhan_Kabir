@@ -1,0 +1,329 @@
+ME: Break down this function.
+AI: 0) Function purpose (at a glance)
+
+generate_weather_response(parsed_question, weather_data)
+→ Returns a human-readable weather message (and tries to draw charts) for a requested location, time period (today/tomorrow/next_N), and attribute (temperature/precipitation/general).
+
+1) Print the raw location (debug side-effect)
+print(parsed_question.get('location'))
+
+
+Just logs whatever parsed_question["location"] is.
+
+Useful for debugging, not needed for final output.
+
+2) Validate that weather_data looks usable
+if not weather_data or "forecast" not in weather_data:
+    return "Sorry, I couldn't retrieve weather data at this time."
+
+
+If nothing was returned or there’s no "forecast" key, bail out early with a friendly error.
+
+3) Safely extract key inputs with fallbacks
+location = parsed_question.get("location") or weather_data.get("location") or "your area"
+time_period = parsed_question.get("time_period", "today").lower()
+attribute = parsed_question.get("attribute", "general").lower()
+
+
+location: prefer user-parsed location → else from weather payload → else default “your area”.
+
+time_period: default “today”; lowercase for consistent comparisons.
+
+attribute: default “general” (i.e., a summary), also lowercased.
+
+4) Clamp inputs to allowed values
+valid_periods = ["today", "tomorrow"] + [f"next_{i}" for i in range(2, 8)]
+valid_attributes = ["temperature", "precipitation", "general"]
+
+if time_period not in valid_periods:
+    time_period = "today"
+if attribute not in valid_attributes:
+    attribute = "general"
+
+
+Accepts today, tomorrow, or next_2 … next_7. Anything else → today.
+
+Accepts temperature, precipitation, or general. Anything else → general.
+
+5) Small helper to pull a single day’s forecast by index
+def get_day_forecast(index):
+    try:
+        return weather_data["forecast"][index]
+    except (KeyError, IndexError):
+        return None
+
+
+Shields you from missing forecast arrays or out-of-range indexes.
+
+Returns None on failure (later handled in the formatter).
+
+6) Try to create charts (non-blocking)
+try:
+    create_temperature_visualisation(weather_data)
+    create_precipitation_visualisation(weather_data)
+except Exception as e:
+    print(f"[Warning] Visualization skipped due to error: {e}")
+
+
+Calls two plotting functions (assumed defined elsewhere).
+
+Any error is swallowed; function still returns a text message.
+
+Nice UX: charts are optional, not required.
+
+7) Helper to format one day’s message cleanly
+def format_single_day_response(day_data, label, location, attribute):
+    if not day_data:
+        return f"Sorry, I don't have {label.lower()}'s forecast for {location}."
+
+    if attribute == "temperature":
+        return f"🌡 {label} in {location}: {day_data['mintempC']}°C – {day_data['maxtempC']}°C."
+    elif attribute == "precipitation":
+        return f"🌧 {label} in {location}: {day_data.get('precipMM', '0')} mm precipitation expected."
+    else:
+        return (
+            f"📅 {label} in {location}: "
+            f"Temperature {day_data['mintempC']}°C–{day_data['maxtempC']}°C, "
+            f"Precipitation {day_data.get('precipMM', '0')} mm."
+        )
+
+
+If day_data is missing → apologetic message.
+
+Otherwise:
+
+temperature: shows min–max °C.
+
+precipitation: shows mm (uses .get with default “0”).
+
+general: shows both.
+
+⚠️ Note: This uses day_data['mintempC'] and ['maxtempC'] directly; if those keys are missing, it will throw a KeyError. Consider changing to .get('mintempC') with a default to be safer.
+
+8) Build the final response based on time_period
+a) Today
+if time_period == "today":
+    day = get_day_forecast(0)
+    return format_single_day_response(day, "Today", location, attribute)
+
+
+Uses the first forecast entry.
+
+b) Tomorrow
+elif time_period == "tomorrow":
+    day = get_day_forecast(1)
+    return format_single_day_response(day, "Tomorrow", location, attribute)
+
+
+Uses the second forecast entry.
+
+c) Next N days
+elif time_period.startswith("next_"):
+    try:
+        days = int(time_period.split("_")[1])
+    except ValueError:
+        days = 3
+    forecast_list = weather_data.get("forecast", [])[:days]
+    if not forecast_list:
+        return f"Sorry, I don't have forecast data for the next {days} days in {location}."
+
+    lines = [f"📅 Weather forecast for the next {days} days in {location}:"]
+    for day in forecast_list:
+        lines.append(
+            f"🗓 {day['date']}: Temp {day['mintempC']}°C–{day['maxtempC']}°C, "
+            f"Precip {day.get('precipMM', '0')} mm"
+        )
+    return "\n".join(lines)
+
+
+Extracts N from "next_N". If parsing fails, defaults to 3.
+
+Takes the first N days from the forecast list and lists each date with min–max and precip.
+
+Same potential KeyError risk for mintempC/maxtempC as above.
+
+d) Fallback (shouldn’t normally hit)
+else:
+    return "Sorry, I couldn't understand the time period requested."
+
+Expected input structure (example)
+
+Your code assumes something like:
+
+parsed_question = {
+    "location": "Perth",
+    "time_period": "tomorrow",  # or "today", "next_5"
+    "attribute": "temperature"  # or "precipitation", "general"
+}
+
+weather_data = {
+    "location": "Perth",
+    "forecast": [
+        {"date": "2025-10-19", "mintempC": 12, "maxtempC": 24, "precipMM": 0.6},
+        {"date": "2025-10-20", "mintempC": 13, "maxtempC": 25, "precipMM": 0.0},
+        ...
+    ]
+}
+
+Robustness improvements (quick wins)
+
+Use .get() with defaults in the formatter to avoid KeyError:
+
+lo = day_data.get("mintempC")
+hi = day_data.get("maxtempC")
+
+
+Validate numeric types and units (°C vs °F), and format with round() if needed.
+
+Confirm forecast indexing (is index 0 always “today”? depends on your provider).
+
+Consider supporting more periods (e.g., specific date) or attributes (wind, humidity).
+
+If charts depend on the same keys, add pre-checks before plotting.
+
+TL;DR (flow)
+
+Guard missing/invalid weather payload.
+
+Extract location/time_period/attribute with defaults.
+
+Clamp to allowed values.
+
+Helper to grab day safely.
+
+Try to plot, but don’t crash if it fails.
+
+Format one day or multi-day message depending on the period.
+
+Return the final user-friendly string.
+
+
+ME: How to generate AI response using parse weather question function?
+AI: Great—here’s an end-to-end pattern you can drop in to parse a user’s weather question → fetch/prepare weather data → call your generate_weather_response(...) and return a friendly AI reply.
+
+I’ll show:
+
+a compact parse_weather_question (regex + keyword logic)
+
+a minimal get_weather_data stub that returns the structure your function expects
+
+a glue function answer_weather_question that ties it all together
+
+quick tests
+
+1) Parse the question → {location, time_period, attribute}
+import re
+
+def parse_weather_question(text: str) -> dict:
+    """
+    Parse a free-form question into a structured dict:
+    {location: str|None, time_period: 'today'|'tomorrow'|'next_N', attribute: 'temperature'|'precipitation'|'general'}
+    """
+    q = text.lower().strip()
+
+    # --- attribute ---
+    if any(w in q for w in ["temp", "temperature", "hot", "cold", "warm", "cool"]):
+        attribute = "temperature"
+    elif any(w in q for w in ["rain", "precip", "precipitation", "mm", "umbrella", "wet"]):
+        attribute = "precipitation"
+    else:
+        attribute = "general"
+
+    # --- time period ---
+    time_period = "today"
+    if "tomorrow" in q:
+        time_period = "tomorrow"
+    # next_N days (e.g., "next 3 days")
+    m = re.search(r"next\s+(\d+)\s*(day|days)?", q)
+    if m:
+        n = max(2, min(7, int(m.group(1))))  # clamp 2..7 as in your function
+        time_period = f"next_{n}"
+
+    # --- location (very simple heuristic) ---
+    # Try to grab text after 'in ' or 'at ' or 'for ' up to punctuation/end.
+    loc_match = re.search(r"\b(in|at|for)\s+([a-zA-Z\s\-]+?)(?:\?|\.|,|$)", text, flags=re.IGNORECASE)
+    location = None
+    if loc_match:
+        location = loc_match.group(2).strip()
+
+    return {
+        "location": location,
+        "time_period": time_period,
+        "attribute": attribute
+    }
+
+2) Prepare weather_data in the shape your function expects
+
+Your generate_weather_response expects:
+
+weather_data = {
+  "location": "Perth",
+  "forecast": [
+     {"date": "YYYY-MM-DD", "mintempC": 12, "maxtempC": 24, "precipMM": 0.6},
+     ...
+  ]
+}
+
+
+Below is a stub. Replace with your real API caller (Open-Meteo, WeatherAPI, etc.), but keep the shape:
+
+from datetime import datetime, timedelta
+
+def get_weather_data(location: str) -> dict:
+    """
+    Return mock data shaped for generate_weather_response().
+    Swap this with your real API integration but keep the same keys.
+    """
+    # Make 7 days of simple synthetic data:
+    today = datetime.now().date()
+    forecast = []
+    base = 15  # base min temp
+    for i in range(7):
+        day = today + timedelta(days=i)
+        forecast.append({
+            "date": day.isoformat(),
+            "mintempC": base + i,          # dummy numbers
+            "maxtempC": base + i + 10,
+            "precipMM": 0 if i % 2 == 0 else 1.2
+        })
+    return {"location": location or "your area", "forecast": forecast}
+
+3) Glue it together with your existing function
+def answer_weather_question(question_text: str) -> str:
+    parsed = parse_weather_question(question_text)
+
+    # Fetch/prepare data (you can handle None location inside your fetcher if needed)
+    weather_data = get_weather_data(parsed.get("location"))
+
+    # Call your function exactly as-is
+    return generate_weather_response(parsed, weather_data)
+
+4) Quick sanity tests
+# 1) Simple temperature question
+print(answer_weather_question("What’s the temperature in Perth tomorrow?"))
+
+# 2) Precipitation next 3 days (location after 'for')
+print(answer_weather_question("Will there be rain for Sydney next 3 days?"))
+
+# 3) General today with fuzzy phrasing
+print(answer_weather_question("Weather in Melbourne today?"))
+
+# 4) Without explicit location (your generate_... will fall back to 'your area')
+print(answer_weather_question("What’s the temperature tomorrow?"))
+
+Notes & best practices
+
+Location extraction: The regex is intentionally simple. If you need stronger parsing, maintain a list of supported cities or use a geocoder/NLP entity recognizer.
+
+Time periods: Your responder supports today, tomorrow, and next_2..next_7. The parser maps “next N days” accordingly. Add rules for specific dates if needed.
+
+Attributes: Expand keyword lists (e.g., “humidity”, “wind”) and support them in generate_weather_response.
+
+API integration: When you replace the stub:
+
+Normalize API units to °C and mm before building weather_data.
+
+Ensure index 0 truly corresponds to today; align indices if the API starts from tomorrow.
+
+Resilience: If a key is missing from the API, use .get() defaults before passing to your formatter to avoid KeyError.
+
